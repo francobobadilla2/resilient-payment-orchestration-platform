@@ -1,0 +1,26 @@
+# Documentación local; nunca contiene credenciales reales
+/local/
+
+# Configuración y secretos locales
+.env
+.env.*
+!.env.example
+*.tfvars
+*.tfvars.json
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Go
+/bin/
+*.test
+coverage.out
+
+# macOS e IDEs
+.DS_Store
+.idea/
+.vscode/
