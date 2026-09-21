@@ -86,6 +86,8 @@ To control costs, all containers run as ECS tasks on one EC2 instance, and one R
 - **Technology:** the second Terraform plan has no unexpected changes; GitHub Actions uses OIDC, publishes a commit-SHA image, and deploys ECS.
 - **Evidence:** current AWS diagram, CRUD sequence diagram, green CI run, E2E output, and startup/shutdown commands.
 
+The `smoke-api` validates the platform only. Tag `phase-1`, then remove it in the next phase.
+
 ### Phase 2 — Merchant Access: Authentication and Authorization
 
 **Outcome:** the deployed Payments API derives merchant identity from a revocable credential.
