@@ -38,7 +38,7 @@ jobs:
         if: ${{ hashFiles('**/*.tf') != '' }}
         uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.16.1"
+          terraform_version: "1.15.1"
 
       - name: Check Terraform formatting
         if: ${{ hashFiles('**/*.tf') != '' }}
@@ -66,7 +66,7 @@ jobs:
         if: ${{ hashFiles('**/*.tf') != '' }}
         uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.16.1"
+          terraform_version: "1.15.1"
 
       - name: Validate Terraform
         if: ${{ hashFiles('**/*.tf') != '' }}
