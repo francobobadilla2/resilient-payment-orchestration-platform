@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Check Go formatting
+        if: ${{ hashFiles('go.mod') != '' }}
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            echo "These files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Set up Terraform
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.1"
+
+      - name: Check Terraform formatting
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        run: terraform fmt -check -recursive
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Lint Go
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+
+      - name: Set up Terraform
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.1"
+
+      - name: Validate Terraform
+        if: ${{ hashFiles('**/*.tf') != '' }}
+        shell: bash
+        run: |
+          mapfile -d '' dirs < <(
+            find . -type f -name '*.tf' \
+              -not -path '*/.terraform/*' \
+              -printf '%h\0' | sort -zu
+          )
+
+          for dir in "${dirs[@]}"; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests
+        if: ${{ hashFiles('go.mod') != '' }}
+        run: go test -race -coverprofile=coverage.out ./...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        if: ${{ hashFiles('go.mod') != '' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        if: ${{ hashFiles('go.mod') != '' }}
+        run: go build ./...
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"

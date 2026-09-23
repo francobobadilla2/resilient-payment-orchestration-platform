@@ -37,11 +37,13 @@ To control costs, all containers run as ECS tasks on one EC2 instance, and one R
 | Secrets | AWS Secrets Manager |
 | Access | AWS Systems Manager Session Manager |
 | Observability | slog, OpenTelemetry, ADOT, CloudWatch, X-Ray |
-| Source control and CI | Git, GitHub, GitHub Actions |
+| Source control and CI | Git, GitHub, GitHub Actions without AWS access |
+| Deployment | Local Terraform and deployment commands authenticated with AWS SSO |
 
 ## Cross-Cutting Practices
 
 - **Git/GitHub:** protect `main`, use small pull requests, and create a `phase-N` tag after each phase.
+- **Deployments:** run every AWS-changing command locally through the `payments-lab-admin` SSO profile. Verify account `147449450940` before planning or applying; GitHub Actions never receives AWS credentials.
 - **Unit tests:** cover money rules, state transitions, idempotency, and ledger balance on every PR.
 - **Integration tests:** use PostgreSQL in Docker for migrations, repositories, outbox, and inbox.
 - **E2E tests:** keep a few critical scenarios against AWS and run them after deployment.
@@ -57,7 +59,7 @@ To control costs, all containers run as ECS tasks on one EC2 instance, and one R
 
 ### Phase 1 — Platform Smoke Test: From Empty Repository to CRUD on AWS
 
-**Outcome:** a disposable CRUD proves the complete GitHub → Terraform → ECR/ECS → RDS path.
+**Outcome:** a disposable CRUD proves the complete local AWS SSO → Terraform → ECR/ECS → RDS path, while GitHub Actions validates the code without AWS access.
 
 **Execute**
 
@@ -66,7 +68,6 @@ To control costs, all containers run as ECS tasks on one EC2 instance, and one R
 3. Create a one-time `bootstrap` stack containing:
    - an encrypted, versioned S3 Terraform backend with native state locking;
    - an AWS Budget;
-   - a GitHub Actions OIDC deployment role.
 4. Pin Terraform and provider versions, and commit `.terraform.lock.hcl`.
 5. Provision with Terraform:
    - VPC and security groups;
@@ -76,14 +77,14 @@ To control costs, all containers run as ECS tasks on one EC2 instance, and one R
    - separate migration and runtime database users;
    - Secrets Manager, IAM roles, Session Manager access, and CloudWatch Logs with short retention.
 6. Implement a `smoke-api` with `/health`, `/ready`, and CRUD endpoints under `/smoke/items` backed by RDS.
-7. Deploy a non-root image and run: create → restart ECS task → read → update → delete.
+7. From a local AWS SSO session, publish a non-root image tagged with the commit SHA, deploy it, and run: create → restart ECS task → read → update → delete.
 8. Run a second `terraform plan`, then test `lab-down` and `infra-up`.
 
 **Exit criteria**
 
 - **Functional:** the CRUD works through an SSM tunnel and data survives an ECS task restart and a lab restart.
 - **Architecture:** RDS is private, the EC2 instance has no inbound ports, and application tasks receive only the secret and permissions they need.
-- **Technology:** the second Terraform plan has no unexpected changes; GitHub Actions uses OIDC, publishes a commit-SHA image, and deploys ECS.
+- **Technology:** the second Terraform plan has no unexpected changes; GitHub Actions completes CI without AWS credentials; a local AWS SSO session publishes a commit-SHA image and deploys ECS.
 - **Evidence:** current AWS diagram, CRUD sequence diagram, green CI run, E2E output, and startup/shutdown commands.
 
 The `smoke-api` validates the platform only. Tag `phase-1`, then remove it in the next phase.
@@ -94,7 +95,7 @@ The `smoke-api` validates the platform only. Tag `phase-1`, then remove it in th
 
 **Execute**
 
-1. Replace `smoke-api` with Payments API while keeping the established pipeline and infrastructure.
+1. Replace `smoke-api` with Payments API while keeping the established CI checks, local deployment workflow, and infrastructure.
 2. Implement `/health`, `/ready`, and `/v1/me`.
 3. Store API keys as hashes and support scopes and revocation.
 4. Add a CLI command that issues a key once and another that revokes it.
@@ -104,7 +105,7 @@ The `smoke-api` validates the platform only. Tag `phase-1`, then remove it in th
 
 - **Functional:** `/v1/me` identifies the merchant; invalid, revoked, or insufficiently scoped keys are rejected.
 - **Architecture:** `merchant_id` always comes from authentication; secrets and configuration remain outside the image.
-- **Technology:** unit tests cover authentication and scopes; OpenAPI defines the contract; CI deploys the image identified by the commit SHA.
+- **Technology:** unit tests cover authentication and scopes; OpenAPI defines the contract; the local deployment publishes and deploys the image identified by the commit SHA.
 - **Evidence:** authentication sequence diagram, OpenAPI document, and E2E output.
 
 ### Phase 3 — Complete Payment: PSP, State Machine, and Ledger
@@ -182,17 +183,17 @@ The `smoke-api` validates the platform only. Tag `phase-1`, then remove it in th
 
 - **Functional:** losing one EC2 instance loses no payments; multiple replicas duplicate no monetary effects; rollback and restore follow tested runbooks.
 - **Architecture:** tasks are stateless, shutdown gracefully, and use coordinated timeout and retry policies; alarms point to concrete actions.
-- **Technology:** scaling and alarms are Terraform-managed; GitHub Actions promotes the same commit-SHA image; k6 results are versioned.
+- **Technology:** scaling and alarms are Terraform-managed; the local deployment promotes the same commit-SHA image; k6 results are versioned.
 - **Evidence:** scaled AWS diagram, failure-and-recovery sequence, metrics, restore validation, and postmortem.
 
 ## Minimum Commands
 
 ```text
 make test          # unit and integration tests
-make bootstrap     # create shared Terraform state and CI identity
+make bootstrap     # create shared Terraform state and cost guardrails
 make image         # build container images
 make infra-up      # create or start the AWS lab
-make deploy        # publish to ECR and update ECS
+make deploy        # locally publish to ECR and update ECS through AWS SSO
 make e2e           # test the deployed phase
 make lab-down      # set ECS and ASG to 0; stop RDS
 make lab-destroy   # snapshot if required, then destroy the lab stack
